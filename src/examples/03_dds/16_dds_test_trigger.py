@@ -1,9 +1,9 @@
 """  
 Spectrum Instrumentation GmbH (c) 2024
 
-12_dds_complex_ramps.py
+16_dds_test_trigger_envlope.py
 
-Complex ramping multiple carriers - Ramping the frequency of 20 carriers from a one setting to another using s-shaped ramps
+Continuous changes - use one carrier to jump between different frequencies that are send through the FIFO
 
 Example for analog replay cards (AWG) for the the M4i and M4x card-families with installed DDS option.
 
@@ -15,10 +15,11 @@ See the LICENSE file for the conditions under which this software may be used an
 import spcm
 from spcm import units
 
+
 import numpy as np
 import matplotlib.pyplot as plt
 
-# A generator function for s-shaped ramps
+# Set the highest process priority to the Python process, to enable highest possible command streaming
 def generate_function(t, parameters):
     if parameters["ramp_type"] == 'cosine':
         # cosine
@@ -44,12 +45,12 @@ def calculate_slope(t, y):
     y_diff = np.diff(y)
     return np.divide(y_diff, t_diff)
 
-
 card : spcm.Card
 # with spcm.Card('/dev/spcm0') as card:                         # if you want to open a specific card
 # with spcm.Card('TCPIP::192.168.1.10::inst0::INSTR') as card:  # if you want to open a remote card
-# with spcm.Card(serial_number=12345) as card:                  # if you want to open a card by its serial number
-with spcm.Card(card_type=spcm.SPCM_TYPE_AO) as card:            # if you want to open the first card of a specific type
+with spcm.Card(serial_number=22189) as card:                  # if you want to open a card by its serial number
+# with spcm.Card(card_type=spcm.SPCM_TYPE_AO) as card:            # if you want to open the first card of a specific type
+    print("Using card:", card)
 
     # setup card for DDS
     card.card_mode(spcm.SPC_REP_STD_DDS)
@@ -67,7 +68,7 @@ with spcm.Card(card_type=spcm.SPCM_TYPE_AO) as card:            # if you want to
     dds.data_transfer_mode(spcm.SPCM_DDS_DTM_DMA)
 
     # Start the DDS test
-    num_cores = len(dds)
+    num_cores = 1 # len(dds)
     # 20 Carriers from 90 to 110 MHz
     first_init_freq_Hz  = 90 * units.MHz
     delta_init_freq_Hz  = 20*1/num_cores * units.MHz
@@ -84,7 +85,7 @@ with spcm.Card(card_type=spcm.SPCM_TYPE_AO) as card:            # if you want to
     dds.freq_ramp_stepsize(1000)
     dds.trg_timer(15.0 * units.s)
     dds.trg_src(spcm.SPCM_DDS_TRG_SRC_TIMER)
-    for core in dds:
+    for core in dds[0:num_cores]:
         core.amp(45 * units.percent / num_cores)
         core.freq(first_init_freq_Hz + int(core) * delta_init_freq_Hz)
     dds.exec_at_trg()
@@ -98,7 +99,7 @@ with spcm.Card(card_type=spcm.SPCM_TYPE_AO) as card:            # if you want to
     slopes = np.zeros((num_cores, num_segments))
     # Show the results
     plt.figure(figsize=(7,7))
-    for core in dds:
+    for core in dds[0:num_cores]:
         parameters = {
             "startFreq_Hz": first_init_freq_Hz + core.index * delta_init_freq_Hz, 
             "endFreq_Hz": first_final_freq_Hz + core.index * delta_final_freq_Hz, 
@@ -129,12 +130,12 @@ with spcm.Card(card_type=spcm.SPCM_TYPE_AO) as card:            # if you want to
 
     # Do the slopes
     for j in range(num_segments):
-        for core in dds:
+        for core in dds[0:num_cores]:
             core.frequency_slope(slopes[core][j]) # Hz/s
         dds.exec_at_trg()
 
     # STEP 2 - Stop the ramp
-    for core in dds:
+    for core in dds[0:num_cores]:
         core.frequency_slope(0) # Hz/s
         core.freq(first_final_freq_Hz + core.index * delta_final_freq_Hz)
     dds.exec_at_trg()
@@ -144,3 +145,5 @@ with spcm.Card(card_type=spcm.SPCM_TYPE_AO) as card:            # if you want to
     card.start(spcm.M2CMD_CARD_ENABLETRIGGER, spcm.M2CMD_CARD_FORCETRIGGER)
 
     input("Press Enter to Exit")
+
+
